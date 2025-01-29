@@ -7,9 +7,13 @@ import ARKit
 class ViewController: UIViewController, ARSCNViewDelegate, UIGestureRecognizerDelegate {
     
     @IBOutlet var sceneView: ARSCNView!
-    private var requiredAction: LivenessAction = .blink
+    
     private var actionVerified = false
     private var challengeStartTime: Date?
+    
+    private var blinkDetected = false
+    private var smileDetected = false
+    private var headTurnDetected = false
     
     private var previousFacePosition: SIMD3<Float>?
     private var faceMotionHistory: [Float] = []
@@ -36,26 +40,16 @@ class ViewController: UIViewController, ARSCNViewDelegate, UIGestureRecognizerDe
         sceneView.session.pause()
     }
     
-    enum LivenessAction: CaseIterable {
-        case blink, headTurnLeft, headTurnRight, smile
-        
-        var description: String {
-            switch self {
-            case .blink: return "Blink your eyes"
-            case .headTurnLeft: return "Turn your head left"
-            case .headTurnRight: return "Turn your head right"
-            case .smile: return "Smile"
-            }
-        }
-    }
-    
     private func startNewChallenge() {
-        requiredAction = LivenessAction.allCases.randomElement() ?? .blink
         actionVerified = false
         challengeStartTime = Date()
         faceMotionHistory.removeAll() // Reset motion history
         
-        print("🔍 Liveness Challenge: \(requiredAction.description)")
+        blinkDetected = false
+        smileDetected = false
+        headTurnDetected = false
+        
+        print("🔍 Liveness Challenge: You must Smile & Blink. Head turn is optional.")
     }
     
     func renderer(_ renderer: SCNSceneRenderer, nodeFor anchor: ARAnchor) -> SCNNode? {
@@ -91,29 +85,30 @@ class ViewController: UIViewController, ARSCNViewDelegate, UIGestureRecognizerDe
     private func checkLiveness(_ faceAnchor: ARFaceAnchor) {
         let blendShapes = faceAnchor.blendShapes
         
-        switch requiredAction {
-        case .blink:
-            if let leftBlink = blendShapes[.eyeBlinkLeft]?.floatValue,
-               let rightBlink = blendShapes[.eyeBlinkRight]?.floatValue,
-               leftBlink > 0.7 && rightBlink > 0.7 {
-                verifyLiveness()
-            }
-            
-        case .headTurnLeft:
-            if faceAnchor.transform.columns.3.x < -0.2 {
-                verifyLiveness()
-            }
-            
-        case .headTurnRight:
-            if faceAnchor.transform.columns.3.x > 0.2 {
-                verifyLiveness()
-            }
-            
-        case .smile:
-            if let mouthSmile = blendShapes[.mouthSmileLeft]?.floatValue,
-               mouthSmile > 0.5 {
-                verifyLiveness()
-            }
+        // Detect Blink
+        if let leftBlink = blendShapes[.eyeBlinkLeft]?.floatValue,
+           let rightBlink = blendShapes[.eyeBlinkRight]?.floatValue,
+           leftBlink > 0.7 && rightBlink > 0.7 {
+            blinkDetected = true
+            print("✅ Blink detected")
+        }
+        
+        // Detect Smile
+        if let mouthSmile = blendShapes[.mouthSmileLeft]?.floatValue,
+           mouthSmile > 0.5 {
+            smileDetected = true
+            print("✅ Smile detected")
+        }
+        
+        // Detect Optional Head Turn (Left or Right)
+        if faceAnchor.transform.columns.3.x < -0.2 || faceAnchor.transform.columns.3.x > 0.2 {
+            headTurnDetected = true
+            print("✅ Head Turn detected (optional)")
+        }
+        
+        // Verify liveness if both mandatory actions are completed
+        if blinkDetected && smileDetected {
+            verifyLiveness()
         }
     }
     
@@ -125,7 +120,7 @@ class ViewController: UIViewController, ARSCNViewDelegate, UIGestureRecognizerDe
             print("⚠️ Liveness challenge took too long. Possible spoofing attempt!")
             startNewChallenge()
         } else {
-            print("✅ Liveness Verified: \(requiredAction.description)")
+            print("✅ Liveness Verified: Smile & Blink detected. Head turn was \(headTurnDetected ? "also detected (extra verification)" : "not required").")
         }
     }
     
