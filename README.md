@@ -65,6 +65,12 @@ class ViewController: UIViewController, ARSCNViewDelegate {
     func renderer(_ renderer: SCNSceneRenderer, didUpdate node: SCNNode, for anchor: ARAnchor) {
         guard let faceAnchor = anchor as? ARFaceAnchor else { return }
         
+        // Check face occlusion before processing liveness
+        if isFaceOccluded(faceAnchor) {
+            print("⚠️ Face is partially or fully occluded! Possible spoof attempt.")
+            return
+        }
+        
         // Natural motion check
         if !isFaceMovingNaturally(faceAnchor) {
             print("⚠️ Possible spoofing detected: Face motion is unnatural!")
@@ -116,6 +122,35 @@ class ViewController: UIViewController, ARSCNViewDelegate {
         } else {
             print("✅ Liveness Verified: \(requiredAction.description)")
         }
+    }
+    
+    // MARK: - Face Occlusion Detection
+    private func isFaceOccluded(_ faceAnchor: ARFaceAnchor) -> Bool {
+        let blendShapes = faceAnchor.blendShapes
+        
+        // Check occlusion levels for eyes, mouth, and cheeks
+        if let eyeLeftClosed = blendShapes[.eyeBlinkLeft]?.floatValue,
+           let eyeRightClosed = blendShapes[.eyeBlinkRight]?.floatValue,
+           let mouthClose = blendShapes[.jawOpen]?.floatValue,
+           let cheekPuff = blendShapes[.cheekPuff]?.floatValue {
+            
+            if eyeLeftClosed < 0.1 && eyeRightClosed < 0.1 {
+                print("⚠️ Eyes may be occluded or covered!")
+                return true
+            }
+            
+            if mouthClose < 0.1 {
+                print("⚠️ Mouth may be occluded!")
+                return true
+            }
+            
+            if cheekPuff > 0.5 {
+                print("⚠️ Unusual cheek detection (possible mask/spoofing)!")
+                return true
+            }
+        }
+        
+        return false
     }
     
     // MARK: - Natural Motion Check
