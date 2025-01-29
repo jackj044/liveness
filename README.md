@@ -1,9 +1,10 @@
 # liveness
 
+
 import UIKit
 import ARKit
 
-class ViewController: UIViewController, ARSCNViewDelegate {
+class ViewController: UIViewController, ARSCNViewDelegate, UIGestureRecognizerDelegate {
     
     @IBOutlet var sceneView: ARSCNView!
     private var requiredAction: LivenessAction = .blink
@@ -12,6 +13,8 @@ class ViewController: UIViewController, ARSCNViewDelegate {
     
     private var previousFacePosition: SIMD3<Float>?
     private var faceMotionHistory: [Float] = []
+    
+    private var cameraNode: SCNNode! // Camera node for zooming
     
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -23,6 +26,8 @@ class ViewController: UIViewController, ARSCNViewDelegate {
         sceneView.delegate = self
         sceneView.session.run(ARFaceTrackingConfiguration())
         
+        setupCameraNode()
+        setupPinchToZoomGesture()
         startNewChallenge()
     }
     
@@ -175,5 +180,41 @@ class ViewController: UIViewController, ARSCNViewDelegate {
         
         previousFacePosition = currentFacePosition
         return true
+    }
+    
+    // MARK: - Zoom Functions
+    private func setupCameraNode() {
+        cameraNode = SCNNode()
+        cameraNode.camera = SCNCamera()
+        
+        // Default position (closer to the face)
+        cameraNode.position = SCNVector3(0, 0, 0.3) // Adjust Z to zoom
+        
+        // Default Field of View
+        cameraNode.camera?.fieldOfView = 50
+        
+        sceneView.pointOfView = cameraNode
+        sceneView.scene.rootNode.addChildNode(cameraNode)
+    }
+    
+    private func setupPinchToZoomGesture() {
+        let pinchGesture = UIPinchGestureRecognizer(target: self, action: #selector(handlePinchGesture(_:)))
+        sceneView.addGestureRecognizer(pinchGesture)
+    }
+    
+    @objc private func handlePinchGesture(_ gesture: UIPinchGestureRecognizer) {
+        guard let camera = cameraNode.camera else { return }
+        
+        let scale = Float(gesture.scale)
+        
+        // Zoom by moving the camera closer/farther
+        let newZ = max(0.1, min(0.6, cameraNode.position.z - (scale - 1) * 0.05)) // Keep within range
+        cameraNode.position.z = newZ
+        
+        // Adjust FOV (lower value = zoom in)
+        let newFOV = max(30, min(70, camera.fieldOfView - Double((scale - 1) * 5)))
+        camera.fieldOfView = newFOV
+        
+        gesture.scale = 1.0 // Reset scale after applying zoom
     }
 }
