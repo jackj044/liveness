@@ -8,12 +8,11 @@ class ViewController: UIViewController, ARSCNViewDelegate, UIGestureRecognizerDe
     
     @IBOutlet var sceneView: ARSCNView!
     
-    private var actionVerified = false
-    private var challengeStartTime: Date?
+    private var requiredActions: [LivenessAction] = [.blink, .smile] // Mandatory actions
+    private var optionalActions: [LivenessAction] = [.headTurnLeft, .headTurnRight] // Optional actions
     
-    private var blinkDetected = false
-    private var smileDetected = false
-    private var headTurnDetected = false
+    private var completedActions: Set<LivenessAction> = []
+    private var challengeStartTime: Date?
     
     private var previousFacePosition: SIMD3<Float>?
     private var faceMotionHistory: [Float] = []
@@ -40,16 +39,26 @@ class ViewController: UIViewController, ARSCNViewDelegate, UIGestureRecognizerDe
         sceneView.session.pause()
     }
     
+    // MARK: - Liveness Actions Enum
+    enum LivenessAction: CaseIterable {
+        case blink, headTurnLeft, headTurnRight, smile
+        
+        var description: String {
+            switch self {
+            case .blink: return "Blink your eyes"
+            case .headTurnLeft: return "Turn your head left"
+            case .headTurnRight: return "Turn your head right"
+            case .smile: return "Smile"
+            }
+        }
+    }
+    
     private func startNewChallenge() {
-        actionVerified = false
+        completedActions.removeAll()
         challengeStartTime = Date()
-        faceMotionHistory.removeAll() // Reset motion history
+        faceMotionHistory.removeAll()
         
-        blinkDetected = false
-        smileDetected = false
-        headTurnDetected = false
-        
-        print("🔍 Liveness Challenge: You must Smile & Blink. Head turn is optional.")
+        print("🔍 Liveness Challenge: Perform all required actions: \(requiredActions.map { $0.description }.joined(separator: ", "))")
     }
     
     func renderer(_ renderer: SCNSceneRenderer, nodeFor anchor: ARAnchor) -> SCNNode? {
@@ -76,51 +85,60 @@ class ViewController: UIViewController, ARSCNViewDelegate, UIGestureRecognizerDe
             return
         }
         
-        // Liveness Challenge Detection
-        if !actionVerified {
-            checkLiveness(faceAnchor)
-        }
+        // Check liveness dynamically
+        checkLiveness(faceAnchor)
     }
     
     private func checkLiveness(_ faceAnchor: ARFaceAnchor) {
         let blendShapes = faceAnchor.blendShapes
         
-        // Detect Blink
-        if let leftBlink = blendShapes[.eyeBlinkLeft]?.floatValue,
-           let rightBlink = blendShapes[.eyeBlinkRight]?.floatValue,
-           leftBlink > 0.7 && rightBlink > 0.7 {
-            blinkDetected = true
-            print("✅ Blink detected")
+        for action in LivenessAction.allCases {
+            switch action {
+            case .blink:
+                if let leftBlink = blendShapes[.eyeBlinkLeft]?.floatValue,
+                   let rightBlink = blendShapes[.eyeBlinkRight]?.floatValue,
+                   leftBlink > 0.7 && rightBlink > 0.7 {
+                    markActionCompleted(action)
+                }
+                
+            case .headTurnLeft:
+                if faceAnchor.transform.columns.3.x < -0.2 {
+                    markActionCompleted(action)
+                }
+                
+            case .headTurnRight:
+                if faceAnchor.transform.columns.3.x > 0.2 {
+                    markActionCompleted(action)
+                }
+                
+            case .smile:
+                if let mouthSmile = blendShapes[.mouthSmileLeft]?.floatValue,
+                   mouthSmile > 0.5 {
+                    markActionCompleted(action)
+                }
+            }
         }
         
-        // Detect Smile
-        if let mouthSmile = blendShapes[.mouthSmileLeft]?.floatValue,
-           mouthSmile > 0.5 {
-            smileDetected = true
-            print("✅ Smile detected")
-        }
-        
-        // Detect Optional Head Turn (Left or Right)
-        if faceAnchor.transform.columns.3.x < -0.2 || faceAnchor.transform.columns.3.x > 0.2 {
-            headTurnDetected = true
-            print("✅ Head Turn detected (optional)")
-        }
-        
-        // Verify liveness if both mandatory actions are completed
-        if blinkDetected && smileDetected {
-            verifyLiveness()
+        verifyLiveness()
+    }
+    
+    private func markActionCompleted(_ action: LivenessAction) {
+        if !completedActions.contains(action) {
+            completedActions.insert(action)
+            print("✅ Action Completed: \(action.description)")
         }
     }
     
     private func verifyLiveness() {
-        actionVerified = true
         let timeTaken = Date().timeIntervalSince(challengeStartTime ?? Date())
         
-        if timeTaken > 5.0 {
-            print("⚠️ Liveness challenge took too long. Possible spoofing attempt!")
-            startNewChallenge()
-        } else {
-            print("✅ Liveness Verified: Smile & Blink detected. Head turn was \(headTurnDetected ? "also detected (extra verification)" : "not required").")
+        let allMandatoryCompleted = requiredActions.allSatisfy { completedActions.contains($0) }
+        
+        if allMandatoryCompleted {
+            print("✅ Liveness Verified: All mandatory actions completed.")
+            if timeTaken > 5.0 {
+                print("⚠️ Liveness challenge took too long. Possible spoofing attempt!")
+            }
         }
     }
     
@@ -128,7 +146,6 @@ class ViewController: UIViewController, ARSCNViewDelegate, UIGestureRecognizerDe
     private func isFaceOccluded(_ faceAnchor: ARFaceAnchor) -> Bool {
         let blendShapes = faceAnchor.blendShapes
         
-        // Check occlusion levels for eyes, mouth, and cheeks
         if let eyeLeftClosed = blendShapes[.eyeBlinkLeft]?.floatValue,
            let eyeRightClosed = blendShapes[.eyeBlinkRight]?.floatValue,
            let mouthClose = blendShapes[.jawOpen]?.floatValue,
@@ -160,15 +177,13 @@ class ViewController: UIViewController, ARSCNViewDelegate, UIGestureRecognizerDe
         if let previousPosition = previousFacePosition {
             let movement = simd_distance(previousPosition, currentFacePosition)
             
-            // Store movement history
             faceMotionHistory.append(movement)
             if faceMotionHistory.count > 10 {
                 faceMotionHistory.removeFirst()
             }
             
-            // Analyze movement for natural variation
             let movementVariance = faceMotionHistory.reduce(0, +) / Float(faceMotionHistory.count)
-            if movementVariance < 0.0001 { // Almost no movement means static image
+            if movementVariance < 0.0001 {
                 return false
             }
         }
@@ -182,10 +197,7 @@ class ViewController: UIViewController, ARSCNViewDelegate, UIGestureRecognizerDe
         cameraNode = SCNNode()
         cameraNode.camera = SCNCamera()
         
-        // Default position (closer to the face)
-        cameraNode.position = SCNVector3(0, 0, 0.3) // Adjust Z to zoom
-        
-        // Default Field of View
+        cameraNode.position = SCNVector3(0, 0, 0.3)
         cameraNode.camera?.fieldOfView = 50
         
         sceneView.pointOfView = cameraNode
@@ -202,14 +214,12 @@ class ViewController: UIViewController, ARSCNViewDelegate, UIGestureRecognizerDe
         
         let scale = Float(gesture.scale)
         
-        // Zoom by moving the camera closer/farther
-        let newZ = max(0.1, min(0.6, cameraNode.position.z - (scale - 1) * 0.05)) // Keep within range
+        let newZ = max(0.1, min(0.6, cameraNode.position.z - (scale - 1) * 0.05))
         cameraNode.position.z = newZ
         
-        // Adjust FOV (lower value = zoom in)
         let newFOV = max(30, min(70, camera.fieldOfView - Double((scale - 1) * 5)))
         camera.fieldOfView = newFOV
         
-        gesture.scale = 1.0 // Reset scale after applying zoom
+        gesture.scale = 1.0
     }
 }
