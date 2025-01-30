@@ -1,5 +1,82 @@
 # liveness
 
+import UIKit
+import ARKit
+import Vision
+
+class FaceDetectionViewController: UIViewController, ARSCNViewDelegate, ARSessionDelegate {
+    
+    let sceneView = ARSCNView()
+    let overlayImageView = UIImageView()
+    
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        
+        setupARScene()
+        setupOverlay()
+    }
+    
+    func setupARScene() {
+        sceneView.frame = view.bounds
+        sceneView.delegate = self
+        sceneView.session.delegate = self
+        view.addSubview(sceneView)
+        
+        let configuration = ARFaceTrackingConfiguration()
+        sceneView.session.run(configuration)
+    }
+    
+    func setupOverlay() {
+        overlayImageView.frame = view.bounds
+        overlayImageView.contentMode = .scaleAspectFit
+        overlayImageView.image = createOverlayImage()
+        view.addSubview(overlayImageView)
+    }
+    
+    func createOverlayImage() -> UIImage {
+        let size = view.bounds.size
+        UIGraphicsBeginImageContextWithOptions(size, false, 0)
+        guard let context = UIGraphicsGetCurrentContext() else { return UIImage() }
+        
+        context.setFillColor(UIColor.black.withAlphaComponent(0.6).cgColor)
+        context.fill(CGRect(origin: .zero, size: size))
+        
+        let circleSize: CGFloat = 200
+        let circleRect = CGRect(x: (size.width - circleSize) / 2, y: (size.height - circleSize) / 2, width: circleSize, height: circleSize)
+        
+        context.setBlendMode(.clear)
+        context.fillEllipse(in: circleRect)
+        
+        let image = UIGraphicsGetImageFromCurrentImageContext()
+        UIGraphicsEndImageContext()
+        
+        return image ?? UIImage()
+    }
+    
+    func session(_ session: ARSession, didUpdate anchors: [ARAnchor]) {
+        guard let faceAnchor = anchors.first as? ARFaceAnchor else { return }
+        
+        DispatchQueue.main.async {
+            self.processFaceAnchor(faceAnchor)
+        }
+    }
+    
+    func processFaceAnchor(_ faceAnchor: ARFaceAnchor) {
+        let facePosition = sceneView.projectPoint(SCNVector3(faceAnchor.transform.columns.3.x, faceAnchor.transform.columns.3.y, faceAnchor.transform.columns.3.z))
+        
+        let facePoint = CGPoint(x: CGFloat(facePosition.x), y: CGFloat(facePosition.y))
+        let circleRect = CGRect(x: (view.bounds.width - 200) / 2, y: (view.bounds.height - 200) / 2, width: 200, height: 200)
+        
+        if circleRect.contains(facePoint) {
+            print("✅ Face is inside the circle!")
+        } else {
+            print("❌ Face is outside the circle")
+        }
+    }
+}
+
+
+
 
 import UIKit
 import ARKit
